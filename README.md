@@ -38,17 +38,18 @@ El script descargará en `data/` el XLSX original y en `assets/` las imágenes P
 
 ## Flujo completo
 
-1. Menú inicial y acceso al cálculo.
+1. Menú inicial con pasos de trabajo y acceso al cálculo.
 2. Búsqueda MLFB mediante Excel. Busca código de 11 caracteres en hoja `Core Level Data 60 Hz`, encabezado 3.
 3. Autollenado de HP, RPM, JM, factor de curvas, Stall HOT, Stall COLD. Por seguridad los campos se bloquean; opción para editarlos.
 4. Captura de datos del equipo: RPM, WR2, MNV, modo bomba/ventilador, factor MMV. WR2 y MNV se desbloquean progresivamente.
 5. Porcentaje de voltaje mediante campo numérico y deslizador sincronizados.
-6. Adaptaciones: MMV nMot, GD2V, GD2V nMot, nGD2, ta y ta CEILING.
-7. Diagnóstico de viabilidad en frío y caliente.
-8. Activación opcional de arranques consecutivos: f, GFe, rotor, estator, factores, arranques y frecuencia.
-9. Gráficas y tablas de frío, caliente y por hora, con bandas térmicas y estados.
-10. PDF técnico y ventana de operaciones utilizadas.
-11. Exportación/importación de proyecto JSON para conservar el trabajo después de cerrar el navegador.
+6. Adaptaciones: MMV nMot, GD2V, GD2V nMot, nGD2, tiempo algebraico ta y CEILING.
+7. Tablero de resumen con par motor, par de carga, margen, cobertura porcentual y diagnóstico en tiempo real.
+8. Análisis de sensibilidad de HP, con potencia teórica de equilibrio y comparación de escenarios sin alterar el motor elegido.
+9. Activación opcional de arranques consecutivos: f, GFe, rotor, estator, factores, arranques y frecuencia.
+10. Gráficas y tablas de frío, caliente y por hora solo cuando la aceleración es físicamente viable.
+11. **PDF descargable en todos los estados**, incluidos par insuficiente, falla térmica, datos parciales y tiempo algebraico negativo; añade resumen ejecutivo, trazabilidad de cálculos y advertencias.
+12. Exportación/importación de proyecto JSON para conservar el trabajo después de cerrar el navegador.
 
 ## Base de datos y actualización
 
@@ -71,13 +72,22 @@ La ecuación central es:
 ta = (nGD2 * RPM_motor) / [375 * (MMM - MMV_nMot)]
 ```
 
+### Dos conceptos que NO deben confundirse
+
+**Resultado algebraico**: el valor de sustituir los datos en la ecuación. Si el par de carga supera al disponible, el denominador es negativo y el resultado de la fórmula será un número negativo. Se muestra y documenta por trazabilidad. **Ese número NO es un tiempo de arranque físico.**
+
+**Tiempo físico y viabilidad**: solo se considera tiempo de aceleración cuando el par medio del motor supera el par referido de la carga. Después, se compara contra Stall HOT/COLD. Si ambos pares son iguales, el denominador es cero y el tiempo algebraico es indefinido; las operaciones, el diagnóstico y el PDF permanecen disponibles.
+
+El tablero también estima la **potencia teórica de equilibrio**, para las mismas RPM, voltaje y factor de curvas. No incluye reserva de ingeniería ni garantiza que un motor de otro tamaño tenga la misma curva de par.
+
 Se conservan las constantes de conversión del original (`23.731`, `7.233`), la obtención de JM desde Excel (`inercia/23.73`), el efecto cuadrático del voltaje y el redondeo de valores derivados. La simulación reproduce el primer enfriamiento especial, estados térmicos progresivos y la referencia fija `B5/60` en el descanso por hora.
 
 **Correcciones deliberadas:**
 - Se permite calcular el tiempo si el par de la carga vale cero (en el original se omitía por una condición booleana).
 - Se detectan ciclos de más de 3600 s y se reportan como inviables.
 - Se evita cualquier escritura global de `debug_log.txt` en entornos multiusuario.
-- El botón Calcular es visible y funcional.
+- El botón Evaluar distingue falta de datos, par insuficiente, límite térmico y arranque aceptado.
+- El PDF incluye resultados rechazados, fórmulas utilizadas y advertencias del modelo.
 - Se permite introducir factor de curvas manualmente si no se usa MLFB.
 - Se guardan también las columnas configurables de Stall HOT/COLD durante la sesión.
 
@@ -90,7 +100,7 @@ pip install pytest
 pytest -q
 ```
 
-Los tests contrastan fórmulas principales, redondeos, conversiones, cero carga, secuencias de frío/caliente/hora, búsqueda MLFB y PDF. Como los archivos originales de Excel y las imágenes no se adjuntan al ZIP, las pruebas unitarias no dependen de descargas; debe hacerse una prueba adicional con MLFB reales del libro original.
+Los tests contrastan fórmulas principales, redondeos, conversiones, cero carga, secuencias de frío/caliente/hora, búsqueda MLFB, tiempo algebraico negativo, igualdad de pares, PDF de casos rechazados y recorrido automático de la interfaz. Como los archivos originales de Excel y las imágenes no se adjuntan al ZIP, las pruebas unitarias no dependen de descargas; debe hacerse una prueba adicional con MLFB reales del libro original.
 
 ## Estructura
 

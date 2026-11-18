@@ -8,6 +8,7 @@ import hashlib
 from io import BytesIO
 import json
 from datetime import date
+from dataclasses import replace
 from pathlib import Path
 from html import escape
 from typing import Any
@@ -40,44 +41,112 @@ st.set_page_config(
 
 CSS = """
 <style>
-:root {--abb:#d81e05;--navy:#253449;--line:#cbd5e1;--muted:#67788b;--paper:#fff;}
-[data-testid="stAppViewContainer"] {background:linear-gradient(155deg,#e5ebf2 0%,#eef2f6 45%,#dfe6ee 100%);}
-[data-testid="stHeader"] {background:transparent;}
-.block-container {max-width:1580px; padding-top:1.15rem; padding-bottom:5rem;}
-[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlock"] {gap:.62rem;}
-[data-testid="stVerticalBlockBorderWrapper"] {background:#fff; border:1px solid #cbd5e1!important; border-radius:11px!important; box-shadow:0 2px 6px #2d405512;}
-div[data-testid="stTextInput"] label p,div[data-testid="stNumberInput"] label p,div[data-testid="stSelectbox"] label p {font-weight:600;color:#2e3b50;font-size:.84rem;}
-.stTextInput input,.stNumberInput input {border-color:#cbd5e1!important;background:#fff!important;min-height:2.35rem!important;}
-.stTextInput input:disabled {color:#1b3c54!important;background:#f0f4f9!important;opacity:1;-webkit-text-fill-color:#1b3c54!important;}
-.stButton button[kind="primary"],div[data-testid="stDownloadButton"] button[kind="primary"] {background:#d81e05!important;border-color:#d81e05!important;color:#fff!important;font-weight:700!important;}
-.stButton button {border-radius:6px;}
-.stButton button:hover {border-color:#b71805!important; color:#b71805!important;}
-.stButton button[kind="primary"]:hover {background:#b71805!important;color:#fff!important;}
-[data-testid="stMetric"] {background:#f5f8fc;border:1px solid #d8e0e9;border-radius:8px;padding:.85rem!important;}
-[data-testid="stMetricLabel"] {color:#536478;}
-[data-testid="stMetricValue"] {font-size:1.55rem;}
-[data-testid="stFileUploader"] {background:#f8fafc;border-radius:8px;}
-[data-testid="stHorizontalBlock"] {gap:.9rem;}
-.abb-hero {background:linear-gradient(112deg,#172d43,#304b63);color:white;border-left:6px solid #d81e05;
- border-radius:10px;padding:19px 23px;margin:0 0 14px 0;box-shadow:0 3px 12px #1b2d4329;}
-.abb-hero h1 {color:white!important;font-size:1.7rem!important;line-height:1.15;margin:0 0 5px!important;}
-.abb-hero p {color:#d9e5f2!important;margin:0;font-size:.88rem;}
-.abb-section {font-size:1.11rem;font-weight:800;letter-spacing:.1px;color:#243951;margin:4px 0 7px;}
-.abb-line {width:100%;height:3px;background:linear-gradient(90deg,#d81e05,#e5ebf2 55%);margin:1px 0 9px;}
-.abb-diagnosis {padding:14px 19px;border-radius:9px;margin:6px 0 15px;border-left:7px solid #678;}
-.abb-diagnosis strong {display:block;font-size:1.03rem;margin-bottom:5px;}
-.abb-diagnosis small {font-size:.87rem;line-height:1.4;}
-.abb-diagnosis.ok {background:#eaf5ee;border-color:#2e7d32;color:#18522d;}
-.abb-diagnosis.warn {background:#fff3cd;border-color:#d4a300;color:#694b07;}
-.abb-diagnosis.bad {background:#fdecea;border-color:#c00000;color:#7f1b18;}
-.abb-diagnosis.info {background:#e6eff8;border-color:#4779a0;color:#2a4a68;}
-.abb-caption {font-size:.77rem;color:#64748b;margin:0 0 8px 0;}
-.abb-chip {font-size:.73rem;display:inline-block;background:#e8eef6;padding:4px 8px;border-radius:5px;color:#2b4c67;font-weight:700;}
-.abb-status-fld {font-size:.77rem;color:#2e7d32;font-weight:700;}
-.abb-headline {font-size:1.15rem;font-weight:800;color:#243951;}
-@media (max-width:840px){.block-container{padding-left:.55rem;padding-right:.55rem}.abb-hero{padding:13px}.abb-hero h1{font-size:1.24rem!important}}
+:root{
+  --abb:#d91f09; --abb-dark:#b91b06; --navy:#172a40; --navy-light:#2c4660;
+  --ink:#243548; --line:#c8d3df; --muted:#63768b; --paper:#fdfefe;
+}
+[data-testid="stAppViewContainer"]{
+  background:radial-gradient(circle at 3% 5%,#dce6ef 0,transparent 27%),
+    linear-gradient(152deg,#e7edf4 0%,#eff3f7 48%,#e0e8f0 100%);
+}
+[data-testid="stHeader"]{background:transparent!important}
+[data-testid="stToolbar"]{opacity:.65}
+.block-container{max-width:1540px;padding:1rem 1.4rem 3.2rem}
+div[data-testid="stVerticalBlockBorderWrapper"]{
+  background:linear-gradient(180deg,#fff,#fafcfe);
+  border:1px solid var(--line)!important;
+  border-radius:11px!important;
+  box-shadow:0 3px 14px rgba(21,48,76,.055);
+}
+[data-testid="stVerticalBlockBorderWrapper"]>div[data-testid="stVerticalBlock"]{
+  gap:.5rem;padding:.12rem .08rem;
+}
+[data-testid="stHorizontalBlock"]{gap:.72rem}
+[data-testid="stMetric"]{border:1px solid #cedae7;background:#f3f7fb;border-radius:9px;padding:.7rem}
+[data-testid="stMetricLabel"] p{color:#586b80;font-weight:650;font-size:.83rem}
+[data-testid="stMetricValue"]{font-size:1.5rem}
+[data-testid="stMetricValue"] div{font-weight:780;color:#17324a}
+div[data-testid="stTextInput"] label p,
+div[data-testid="stNumberInput"] label p,
+div[data-testid="stSelectbox"] label p,
+div[data-testid="stSlider"] label p{color:#243c54;font-size:.82rem;font-weight:680}
+.stTextInput input,.stNumberInput input{
+  border:1px solid #b9c9d9!important;
+  background:#fff!important;
+  min-height:2.37rem!important;
+  color:#1a2e44!important;
+}
+.stTextInput input:disabled{
+  background:#eaf0f7!important;color:#143650!important;opacity:1;
+  -webkit-text-fill-color:#143650!important;border-color:#cbd7e3!important;
+  font-weight:640;
+}
+div[data-baseweb="select"]>div{border-color:#b9c9d9!important}
+.stButton button,.stDownloadButton button{border-radius:7px;min-height:2.35rem;font-weight:650}
+.stButton button[kind="primary"],div[data-testid="stDownloadButton"] button[kind="primary"]{
+  background:#d91f09!important;color:#fff!important;border:1px solid #d91f09!important;
+  box-shadow:0 2px 4px #ac280b24;font-weight:760!important;
+}
+.stButton button[kind="primary"]:hover,div[data-testid="stDownloadButton"] button[kind="primary"]:hover{
+  background:#b91b06!important;border-color:#b91b06!important;
+}
+.stButton button:hover{color:#b91b06;border-color:#b91b06}
+[data-testid="stFileUploader"]{background:#f5f8fc;border:1px dashed #bdcbd9;border-radius:9px;padding:.3rem}
+[data-testid="stExpander"]{border:1px solid #c6d1dc;border-radius:9px;background:#f7fafc}
+div[data-testid="stExpander"] summary{font-weight:700;color:#1e3a52}
+[data-testid="stDataFrame"]{border:1px solid #cbd5df;border-radius:7px}
+.abb-hero{
+  background:linear-gradient(112deg,#14293e 0%,#233e59 55%,#334e66 100%);
+  color:white;border-left:6px solid #e3280c;
+  border-radius:11px;padding:18px 22px;margin:0 0 11px;
+  box-shadow:0 6px 20px #172e4722;
+}
+.abb-hero h1{color:white!important;font-size:1.6rem!important;line-height:1.2;margin:0 0 7px!important}
+.abb-hero p{color:#dae5f0!important;font-size:.83rem;margin:0;letter-spacing:.05px}
+.abb-eyebrow{color:#adc3d8;font-size:.72rem;text-transform:uppercase;letter-spacing:1.5px;font-weight:780;margin:0 0 5px}
+.abb-section{color:#233c55;font-size:1.04rem;font-weight:810;letter-spacing:-.15px;margin:0 0 4px}
+.abb-line{height:2px;background:linear-gradient(90deg,#d91f09,#f1c0b8 24%,#e8edf4 72%);margin:3px 0 7px}
+.abb-diagnosis{padding:14px 17px;border-left:6px solid #697b8e;border-radius:8px;margin:7px 0 12px}
+.abb-diagnosis strong{display:block;font-size:1.02rem;font-weight:820;margin:0 0 5px}
+.abb-diagnosis small{font-size:.87rem;line-height:1.53}
+.abb-diagnosis.ok{background:#e9f5ef;color:#135a37;border-color:#19865b}
+.abb-diagnosis.warn{background:#fff4d9;color:#76520a;border-color:#dca322}
+.abb-diagnosis.bad{background:#ffedeb;color:#921e15;border-color:#d91f09}
+.abb-diagnosis.info{background:#e9f1f9;color:#31506c;border-color:#517d9c}
+.abb-chip{
+  display:inline-block;background:#dde9f4;border:1px solid #c4d5e6;color:#23435c;
+  padding:5px 9px;border-radius:7px;font-size:.73rem;font-weight:760;
+}
+.abb-info-row{background:#f3f7fb;border:1px solid #cbd8e6;border-radius:8px;padding:9px 12px;margin:7px 0}
+.abb-info-row strong{color:#243d55}
+.abb-guide{font-size:.86rem;line-height:1.55;color:#445c70}
+.abb-guide strong{color:#182e43}
+.abb-steps{display:flex;gap:8px;flex-wrap:wrap;margin:9px 0 18px}
+.abb-step{border:1px solid #d3dce6;background:#fff;padding:9px 12px;border-radius:8px;font-size:.79rem;color:#37516a;font-weight:700}
+.abb-step b{display:inline-block;background:#d91f09;color:white;border-radius:50%;height:21px;width:21px;line-height:21px;text-align:center;margin-right:6px}
+.abb-overview{
+  background:linear-gradient(117deg,#172c41,#26445f);border-radius:9px;
+  padding:12px 17px;margin:6px 0 9px;border-left:5px solid #d91f09;
+  box-shadow:0 3px 13px #263b5520;
+}
+.abb-overview .over-title{color:#aec8dd;font-size:.75rem;text-transform:uppercase;font-weight:750;letter-spacing:.9px}
+.abb-overview .over-number{font-size:1.65rem;font-weight:810;color:white;margin:4px 0 2px}
+.abb-overview .over-sub{font-size:.74rem;color:#d3e1ef}
+.abb-overview .over-note{color:#ffc3b5;font-weight:750;font-size:.77rem;margin:5px 0 0}
+.abb-progress{height:8px;border-radius:12px;background:#ccd8e4;overflow:hidden}
+.abb-progress > div{height:100%;background:linear-gradient(90deg,#df2a11,#ef7c4b);border-radius:12px}
+.abb-footnote{font-size:.78rem;color:#526980;line-height:1.55}
+.abb-status-fld{font-size:.75rem;color:#287b51;font-weight:750}
+@media (max-width:900px){
+  .block-container{padding:.7rem .65rem 2rem}
+  .abb-hero{padding:13px}
+  .abb-hero h1{font-size:1.23rem!important}
+  .abb-overview .over-number{font-size:1.35rem}
+  [data-testid="stHorizontalBlock"]{gap:.38rem}
+}
 </style>
 """
+
 st.markdown(CSS, unsafe_allow_html=True)
 
 MODEL_KEYS = [
@@ -244,7 +313,8 @@ def input_field(label: str, key: str, helptext: str | None=None, disabled: bool=
 
 
 def readonly(label: str, value: float | None, unit: str=""):
-    st.text_input(label,value=(display(value,6)+(f" {unit}" if unit and value is not None else "")),disabled=True)
+    printable=display(value,6) if value is not None else "No definido"
+    st.text_input(label,value=(printable+(f" {unit}" if unit and value is not None else "")),disabled=True)
 
 
 def section(text: str):
@@ -255,6 +325,103 @@ def render_diagnosis(result: MotorResult):
     st.markdown(
         f'<div class="abb-diagnosis {result.status_kind}"><strong>{escape(result.status)}</strong>'
         f'<small>{escape(result.diagnosis)}</small></div>',unsafe_allow_html=True)
+
+
+def render_overview(result: MotorResult):
+    """Resumen técnico compacto, completo incluso en casos de no arranque."""
+    v=result.values
+    st.markdown(
+        '<div class="abb-overview"><div class="over-title">Evaluación técnica · resultado en tiempo real</div>'
+        '<div class="over-number">'+escape(result.status)+'</div>'
+        '<div class="over-sub">Los resultados algebraicos se conservan incluso cuando el arranque es inviable.</div></div>',
+        unsafe_allow_html=True,
+    )
+    columns=st.columns(4)
+    with columns[0]:
+        st.metric("Par motor disponible", display(v.get("MMM"),4)+" kgm" if v.get("MMM") is not None else "—")
+    with columns[1]:
+        st.metric("Par requerido de carga", display(v.get("MMV_nMot"),4)+" kgm" if v.get("MMV_nMot") is not None else "—")
+    with columns[2]:
+        margin=v.get("torque_margin")
+        st.metric("Margen de par", display(margin,4)+" kgm" if margin is not None else "—")
+    with columns[3]:
+        algebra=v.get("ta_algebraic")
+        label="ta algebraico (NO físico)" if v.get("start_feasible") is False else "Tiempo de arranque (ta)"
+        st.metric(label,display(algebra,3)+" s" if algebra is not None else "Indefinido / pendiente")
+    coverage=v.get("torque_coverage_pct")
+    if coverage is not None:
+        percent=max(0.0,min(100.0,coverage))
+        st.markdown(
+            '<div class="abb-info-row"><div class="abb-guide"><strong>Cobertura del par requerido: '
+            +escape(display(coverage,2))+' %</strong></div>'
+            +f'<div class="abb-progress"><div style="width:{percent:.3f}%"></div></div></div>',
+            unsafe_allow_html=True,
+        )
+    render_diagnosis(result)
+    if v.get("start_feasible") is False:
+        hp=v.get("hp_equilibrium")
+        if hp is not None:
+            st.markdown(
+                '<div class="abb-guide"><strong>Referencia de potencia:</strong> '
+                +escape(display(hp,3))+' HP equivalen aproximadamente al equilibrio de pares '
+                'con los mismos factores y velocidades. Para acelerar se necesita un margen positivo. '
+                '<strong>No es una selección de motor ni incluye reserva de ingeniería.</strong></div>',
+                unsafe_allow_html=True,
+            )
+        if v.get("ta_algebraic") is not None:
+            st.caption("El signo negativo de ta es el resultado de sustituir los datos en la ecuación; "
+                       "NO significa que el motor arranque en tiempo negativo.")
+        else:
+            st.caption("El equilibrio exacto de pares implica denominador cero; no existe un tiempo algebraico finito.")
+    elif v.get("start_feasible") is True and result.status_kind=="bad":
+        st.caption("El motor puede tener par neto positivo, pero incumplir los tiempos de bloqueo térmico HOT/COLD.")
+
+
+def render_sensitivity(result: MotorResult):
+    """Compara potencia de motor sin cambiar los valores cargados por MLFB."""
+    i,v=result.inputs,result.values
+    req=v.get("hp_equilibrium")
+    if req is None or i.hp is None or req<=0:
+        return
+    with st.expander("Análisis de alternativas · ¿qué potencia necesitaría?",expanded=(v.get("start_feasible") is False)):
+        st.markdown(
+            '<div class="abb-guide">Evaluación de sensibilidad manteniendo <strong>las mismas RPM, '
+            'factor de curvas, voltaje y carga</strong>. Es una comparación algebraica; '
+            'no garantiza el comportamiento de un motor diferente.</div>',
+            unsafe_allow_html=True,
+        )
+        reference_hp=min(200000.0,max(.1,round(req*1.2,3)))
+        proposed=st.number_input("Potencia del escenario (HP)",min_value=.1,max_value=200000.0,
+                                 value=reference_hp,step=1.0,format="%.3f",
+                                 help="Simula un HP alternativo sin modificar el motor original.")
+        alt=calculate_motor(replace(i,hp=proposed))
+        c1,c2,c3=st.columns(3)
+        with c1:st.metric("HP de equilibrio (teórico)",f"{req:,.2f} HP")
+        with c2:st.metric("MMM con HP simulado",display(alt.values.get("MMM"),4)+" kgm")
+        with c3:st.metric("ta con HP simulado",
+                          (display(alt.values.get("ta_algebraic"),3)+" s")
+                          if alt.values.get("ta_algebraic") is not None else "Indefinido")
+        if alt.values.get("start_feasible") is False:
+            st.error("El escenario todavía no tiene par suficiente. ta es algebraico y NO físico.")
+        else:
+            st.success("El escenario supera el par de la carga según el modelo. "
+                       "Revise adicionalmente los límites HOT/COLD y la curva real del motor.")
+        comparisons=[]
+        for label,hp in [("Original",i.hp),("Equilibrio teórico",req),
+                         ("Reserva ilustrativa +20 %",req*1.2)]:
+            candidate=calculate_motor(replace(i,hp=hp))
+            cv=candidate.values
+            comparisons.append({
+                "Escenario":label,
+                "HP":round(hp,3),
+                "Par motor (kgm)":round(cv["MMM"],4) if cv["MMM"] is not None else None,
+                "Margen (kgm)":round(cv["torque_margin"],4) if cv["torque_margin"] is not None else None,
+                "ta algebraico (s)":cv["ta_algebraic"],
+                "¿Par suficiente?":"Sí" if cv["start_feasible"] is True else "No",
+            })
+        st.dataframe(pd.DataFrame(comparisons),hide_index=True,width="stretch")
+        st.caption("El 20 % es solo una hipótesis ilustrativa. No constituye un factor "
+                   "de servicio normativo ni reemplaza la evaluación completa del accionamiento.")
 
 
 def on_voltage_slider():
@@ -329,8 +496,16 @@ def home():
             if st.button("Continuar / Continue",type="primary",width="stretch"):
                 ss["screen"]="calculator"
                 st.rerun()
-            st.caption("Conserva el método original, sus fórmulas, la búsqueda MLFB, las simulaciones térmicas y el PDF.")
-    st.caption("Versión Streamlit · Se elimina el comparador independiente de MLFB para mantener el alcance exclusivamente en arranque de motores.")
+            st.caption("Cálculo automático desde Excel o captura manual. "
+                       "El PDF se puede descargar incluso cuando el motor no supera la carga.")
+    st.markdown(
+        '<div class="abb-steps"><div class="abb-step"><b>1</b>Motor por MLFB o manual</div>'
+        '<div class="abb-step"><b>2</b>Equipo accionado</div>'
+        '<div class="abb-step"><b>3</b>Evaluación y escenarios</div>'
+        '<div class="abb-step"><b>4</b>Informe PDF completo</div></div>',
+        unsafe_allow_html=True,
+    )
+    st.caption("Calculadora de arranque de motores · Se conserva el módulo térmico y se excluye el comparador MLFB independiente.")
 
 
 def excel_controls():
@@ -432,7 +607,7 @@ def main():
 
     result=calculate_motor(motor_inputs())
     print("[MOTOR-BOOT] Calculadora: motor calculado", flush=True)
-    render_diagnosis(result)
+    render_overview(result)
     locked=ss["motor_found"] and not ss["unlock_motor"]
 
     left,right=st.columns(2,vertical_alignment="top")
@@ -478,18 +653,28 @@ def main():
             with b:st.number_input("Volts número",min_value=0,max_value=100,step=1,key="voltage_number",label_visibility="collapsed",on_change=on_voltage_number)
             st.caption("Factor aplicado al par nominal: (voltaje / 100)²")
 
-    # Adaptaciones exactamente en la secuencia que utiliza el formulario original.
+    # Adaptaciones conservadas en el orden del formulario original.
     with st.container(border=True):
         section("Adaptaciones / Adaptations")
+        time_label=("ta algebraico (NO físico, s)" if result.values.get("start_feasible") is False
+                    else "ta / Tiempo arranque (s)")
         maps=[("MMV nMot. (kgm)","MMV_nMot"),("GD2V (kgm²)","GD2V"),
               ("GD2V nMot. (kgm²)","GD2V_nMot"),("nGD2 (kgm²)","nGD2"),
-              ("ta (segundos)","ta"),("ta CEILING (segundos)","ta_ceiling")]
+              (time_label,"ta"),("ta CEILING algebraico (s)","ta_ceiling")]
         for index in range(0,len(maps),3):
             cols=st.columns(3)
             for col,(label,k) in zip(cols,maps[index:index+3]):
                 with col:readonly(label,result.values[k])
         if result.warnings:
             st.warning(" · ".join(dict.fromkeys(result.warnings)))
+        if result.values.get("start_feasible") is False:
+            st.error("La ecuación sí se ha calculado. Como el margen de par es negativo o nulo, "
+                     "ta es algebraico y NO representa un arranque realizable.")
+        elif result.values.get("ta_physical") is not None:
+            st.caption("La ecuación tiene par neto positivo. Verifique por separado "
+                       "los límites HOT/COLD y las condiciones reales de operación.")
+
+    render_sensitivity(result)
 
     cons=None
     if result.values["ta"] is not None and not ss["enable_consecutive"]:
@@ -530,17 +715,21 @@ def main():
                 for col,(label,key) in zip(cols,specs[i:i+4]):
                     with col:readonly(label,cons.values.get(key))
             for warning in dict.fromkeys(cons.warnings):st.warning(warning)
-            section("Gráfica Arranques en Frío / Cold Starts Chart")
-            st.plotly_chart(thermal_chart(cons.cold,"Temperatura por arranque en frío",TEMP_MAX_COLD),width="stretch")
-            st.markdown("**Tabla Arranques en Frío / Cold Starts Table**")
-            status_table(cons.cold)
-            section("Gráfica Arranques en Caliente / Hot Starts Chart")
-            st.plotly_chart(thermal_chart(cons.hot,"Temperatura por arranque en caliente",TEMP_MAX_HOT),width="stretch")
-            st.markdown("**Tabla Arranques en Caliente / Hot Starts Table**")
-            status_table(cons.hot)
-            section("Arranques por Hora / Starts per Hour")
-            status_table(cons.hourly,hourly=True)
-            st.plotly_chart(thermal_chart(cons.hourly,"Temperatura por hora de operación",None,hourly=True),width="stretch")
+            if cons.cold or cons.hot or cons.hourly:
+                section("Gráfica Arranques en Frío / Cold Starts Chart")
+                st.plotly_chart(thermal_chart(cons.cold,"Temperatura por arranque en frío",TEMP_MAX_COLD),width="stretch")
+                st.markdown("**Tabla Arranques en Frío / Cold Starts Table**")
+                status_table(cons.cold)
+                section("Gráfica Arranques en Caliente / Hot Starts Chart")
+                st.plotly_chart(thermal_chart(cons.hot,"Temperatura por arranque en caliente",TEMP_MAX_HOT),width="stretch")
+                st.markdown("**Tabla Arranques en Caliente / Hot Starts Table**")
+                status_table(cons.hot)
+                section("Arranques por Hora / Starts per Hour")
+                status_table(cons.hourly,hourly=True)
+                st.plotly_chart(thermal_chart(cons.hourly,"Temperatura por hora de operación",None,hourly=True),width="stretch")
+            else:
+                st.info("Los parámetros capturados quedan disponibles para el informe. "
+                        "No se muestran gráficas de arranques físicos cuando falta par de aceleración.")
 
     with st.container(border=True):
         section("Acciones / Actions")
@@ -548,23 +737,39 @@ def main():
         with c1:
             st.button("↻ Reiniciar / Reset",width="stretch",on_click=reset_model)
         with c2:
-            if st.button("✓ Calcular / Calculate",type="primary",width="stretch"):
-                if result.values["ta"] is None:st.error("Faltan valores para calcular el tiempo de arranque; revise los campos y el factor de curvas.")
-                else:st.success(f"Tiempo de arranque = {display(result.values['ta'])} s · {result.status}")
+            if st.button("✓ Evaluar / Calculate",type="primary",width="stretch"):
+                if result.values.get("start_feasible") is False:
+                    st.error(
+                        f"{result.status}. Resultado algebraico ta = "
+                        f"{display(result.values.get('ta_algebraic'))} s (NO físico). "
+                        "Los cálculos siguen disponibles y puedes exportar el informe PDF."
+                    )
+                elif result.values.get("ta_physical") is not None:
+                    if result.status_kind=="ok":
+                        st.success(f"Tiempo físico calculado = {display(result.values['ta_physical'])} s. "
+                                   f"{result.status}")
+                    else:
+                        st.warning(f"Tiempo físico calculado = {display(result.values['ta_physical'])} s. "
+                                   f"{result.status}")
+                else:
+                    st.info("Evaluación parcial: compruebe HP, RPM, inercia, MNV, "
+                            "factor de curvas y Stall HOT/COLD. "
+                            "El informe PDF documenta los valores que sí se calcularon.")
         with c3:
             if st.button("∑ Operaciones utilizadas",width="stretch"):
                 operations_dialog(result,cons)
         with c4:
-            if result.values["ta"] is not None:
-                try:
-                    pdf=generate_pdf(result,cons,ss["mlfb"],optional_resource("assets/logo.png"))
-                    st.download_button("↓ Exportar PDF",pdf,
-                                       file_name=f"{ss['mlfb'].strip().upper() or 'resultado_arranque'} - {date.today():%d-%m-%Y}.pdf",
-                                       mime="application/pdf",type="primary",width="stretch")
-                except Exception as exc:
-                    st.error(f"No se pudo generar PDF: {exc}")
-            else:
-                st.button("↓ Exportar PDF",disabled=True,width="stretch")
+            try:
+                # También se genera para fallos de par, límites térmicos y resultados parciales.
+                pdf=generate_pdf(result,cons,ss["mlfb"],optional_resource("assets/logo.png"))
+                status_tag=("NO_APTO" if result.status_kind=="bad" else
+                            "PARCIAL" if result.status_kind=="info" else "CALCULO")
+                st.download_button("↓ Exportar informe PDF",pdf,
+                                   file_name=f"{ss['mlfb'].strip().upper() or 'motor'}_{status_tag}_{date.today():%Y-%m-%d}.pdf",
+                                   mime="application/pdf",type="primary",width="stretch",
+                                   help="El PDF incluye resultados algebraicos, diagnóstico y operaciones aun si el motor no arranca.")
+            except Exception as exc:
+                st.error(f"No se pudo generar PDF: {exc}")
         st.markdown("**Guardar / recuperar un cálculo**")
         a,b=st.columns(2)
         with a:

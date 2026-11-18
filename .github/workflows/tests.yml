@@ -1,7 +1,7 @@
 name: Pruebas de calculadora Streamlit
 on:
   push:
-    branches: [main]
+    branches: [main, mejora-integral-2026-11]
   workflow_dispatch:
 jobs:
   tests:

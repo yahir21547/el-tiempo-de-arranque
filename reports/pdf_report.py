@@ -63,7 +63,8 @@ def line(pdf: FPDF, label: str, value: object, unit: str = ""):
     pdf.set_font("Helvetica", "", 9)
     pdf.cell(122, 6, latin(label)[:72], border="B")
     pdf.set_font("Helvetica", "B", 9)
-    pdf.cell(0, 6, latin(f"{display(value, 5)} {unit}"), border="B", new_x="LMARGIN", new_y="NEXT", align="R")
+    printable = display(value, 5) if value is not None else "No definido"
+    pdf.cell(0, 6, latin(f"{printable} {unit}"), border="B", new_x="LMARGIN", new_y="NEXT", align="R")
 
 
 def write_table(pdf: FPDF, title: str, rows: list[dict], hourly: bool = False):
@@ -160,8 +161,47 @@ def generate_pdf(motor: MotorResult, consecutive: ConsecutiveResult | None = Non
                  mlfb: str = "", logo: Path | None = None) -> bytes:
     pdf = MotorPDF(mlfb, logo)
     pdf.add_page()
-    heading(pdf,"DATOS DEL MOTOR / MOTOR DATA")
     i,v=motor.inputs,motor.values
+
+    heading(pdf,"RESUMEN EJECUTIVO / TECHNICAL SUMMARY")
+    colors={"ok":(46,125,50),"warn":(169,111,0),"bad":(192,0,0),"info":(90,105,122)}
+    highlight=colors.get(motor.status_kind,colors["info"])
+    pdf.set_fill_color(*(234,245,238) if motor.status_kind=="ok" else
+                       (255,243,205) if motor.status_kind=="warn" else
+                       (253,236,234) if motor.status_kind=="bad" else
+                       (238,242,246))
+    pdf.set_draw_color(*highlight)
+    pdf.set_font("Helvetica","B",12)
+    pdf.set_text_color(*highlight)
+    pdf.multi_cell(0,10,latin(motor.status),border=1,align="C",fill=True,
+                   new_x="LMARGIN",new_y="NEXT")
+    pdf.set_text_color(31,41,55)
+    pdf.set_font("Helvetica","",9)
+    pdf.ln(2)
+    pdf.multi_cell(0,6,latin(motor.diagnosis),new_x="LMARGIN",new_y="NEXT")
+    pdf.ln(3)
+    for label,key,unit in [
+        ("Par medio del motor (MMM)","MMM","kgm"),
+        ("Par referido de la carga","MMV_nMot","kgm"),
+        ("Margen de par (motor menos carga)","torque_margin","kgm"),
+        ("Cobertura teórica de par","torque_coverage_pct","%"),
+        ("Potencia de equilibrio teórico","hp_equilibrium","HP"),
+        ("Potencia adicional hasta equilibrio","hp_deficit","HP"),
+    ]:
+        line(pdf,label,v.get(key),unit)
+    if v.get("start_feasible") is False:
+        pdf.ln(3)
+        pdf.set_font("Helvetica","B",9)
+        pdf.set_text_color(192,0,0)
+        pdf.multi_cell(0,6,latin(
+            "AVISO: El motor NO supera el par resistente. "
+            "Un tiempo algebraico negativo no es un tiempo fisico de aceleracion. "
+            "Este documento conserva las operaciones por trazabilidad, "
+            "pero NO certifica un arranque."
+        ),new_x="LMARGIN",new_y="NEXT")
+        pdf.set_text_color(31,41,55)
+    pdf.ln(4)
+    heading(pdf,"DATOS DEL MOTOR / MOTOR DATA")
     for a,b,u in [("Potencia HP",i.hp,"HP"),("RPM motor",i.rpm_motor,"rpm"),
                   ("Voltaje alimentado",i.voltage_pct,"%"),("MNM",v["MNM"],"kgm"),
                   ("JM",i.jm,"kgm2"),("GD2M",v["GD2M"],"kgm2"),
@@ -174,8 +214,9 @@ def generate_pdf(motor: MotorResult, consecutive: ConsecutiveResult | None = Non
                   ("MNV normalizado",v["MNV_normal"],"kgm"),("MMV",v["MMV"],"kgm"),
                   ("JV",v["JV"],"kgm2"),("MMV nMot",v["MMV_nMot"],"kgm"),
                   ("GD2V",v["GD2V"],"kgm2"),("GD2V nMot",v["GD2V_nMot"],"kgm2"),
-                  ("nGD2",v["nGD2"],"kgm2"),("Tiempo de arranque",v["ta"],"s"),
-                  ("Tiempo de arranque CEILING",v["ta_ceiling"],"s")]:
+                  ("nGD2",v["nGD2"],"kgm2"),("Resultado algebraico ta",v["ta_algebraic"],"s"),
+                  ("Tiempo físico si es viable",v["ta_physical"],"s"),
+                   ("ta CEILING algebraico",v["ta_ceiling"],"s")]:
         line(pdf,a,b,u)
     pdf.ln(4)
     heading(pdf,"EVALUACION DE ARRANQUE / START-UP EVALUATION")
@@ -186,6 +227,32 @@ def generate_pdf(motor: MotorResult, consecutive: ConsecutiveResult | None = Non
     pdf.set_text_color(31,41,55)
     pdf.set_font("Helvetica","",9)
     pdf.multi_cell(0,6,latin(motor.diagnosis),align="C",new_x="LMARGIN",new_y="NEXT")
+
+    pdf.ln(6)
+    heading(pdf,"MEMORIA DE CALCULO / CALCULATION TRACE")
+    if motor.operations:
+        for name,expression,answer in motor.operations:
+            if pdf.get_y()>255:
+                pdf.add_page()
+                heading(pdf,"MEMORIA DE CALCULO / CONTINUACION")
+            pdf.set_font("Helvetica","B",8)
+            pdf.set_text_color(31,41,55)
+            pdf.multi_cell(0,5,latin(f"{name}: {answer}"),new_x="LMARGIN",new_y="NEXT")
+            pdf.set_font("Helvetica","",8)
+            pdf.set_text_color(90,105,122)
+            pdf.multi_cell(0,5,latin(f"  {expression}")[:170],new_x="LMARGIN",new_y="NEXT")
+        pdf.set_text_color(31,41,55)
+    else:
+        pdf.set_font("Helvetica","",9)
+        pdf.multi_cell(0,6,"Sin operaciones disponibles.",new_x="LMARGIN",new_y="NEXT")
+    pdf.ln(3)
+    pdf.set_font("Helvetica","I",8)
+    pdf.multi_cell(0,5,latin(
+        "Analisis orientativo basado en el modelo de la calculadora. "
+        "La potencia de equilibrio es teorica y NO incluye margen de seguridad, "
+        "picos de carga, curva completa de aceleracion ni verificacion de protecciones. "
+        "Debe validarse antes de una decision de ingenieria."
+    ),new_x="LMARGIN",new_y="NEXT")
 
     if consecutive is not None:
         pdf.add_page()
@@ -198,6 +265,11 @@ def generate_pdf(motor: MotorResult, consecutive: ConsecutiveResult | None = Non
             ("ciclo","Tiempo de ciclo","s"),("resto","Tiempo restante","s"),
             ("reposo_ciclo","Reposo por ciclo","s")]:
             line(pdf,title,consecutive.values.get(key),unit)
+        if consecutive.warnings:
+            pdf.ln(4)
+            for warning in consecutive.warnings:
+                pdf.set_font("Helvetica","",8)
+                pdf.multi_cell(0,5,latin("Observacion: "+warning),new_x="LMARGIN",new_y="NEXT")
         if consecutive.cold:
             pdf.add_page()
             write_table(pdf,"ARRANQUES EN FRIO / COLD STARTS",consecutive.cold)
