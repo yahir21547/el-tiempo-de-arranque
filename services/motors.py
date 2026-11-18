@@ -96,3 +96,108 @@ def lookup_motor(frame: pd.DataFrame, code: str, columns: dict[str, str]) -> Mot
     cold = required_float(row.iloc[cl["cold"]], "Stall COLD")
     rpm = {"A": 3600, "B": 1800, "C": 1200, "D": 900}.get(code[9])
     return MotorRecord(code, hp, inertia / 23.73, curve / 100, hot, cold, rpm, int(pos))
+
+
+# ---------------------------------------------------------------------------
+# Modo ligero para Streamlit Cloud. No construye un DataFrame con toda la hoja.
+# openpyxl read_only=True recorre una fila a la vez y cierra el libro al salir.
+# ---------------------------------------------------------------------------
+
+def validate_column_codes(columns: dict[str, str]) -> None:
+    required=set(DEFAULT_COLS)
+    if set(columns) != required:
+        raise MotorDataError("La configuración debe incluir MLFB, HP, inercia, curvas y ambos Stall.")
+    for key in DEFAULT_COLS:
+        code=columns[key]
+        if not isinstance(code,str) or len(code)>3:
+            raise MotorDataError(f"Columna inválida para {key}: {code!r}")
+        excel_col_index(code)
+
+
+def _stream_workbook(source: bytes | str | Path):
+    from openpyxl import load_workbook
+    try:
+        workbook=load_workbook(
+            BytesIO(source) if isinstance(source,bytes) else source,
+            read_only=True,
+            data_only=True,
+            keep_links=False,
+        )
+    except Exception as exc:
+        raise MotorDataError(f"No se pudo abrir la base de motores: {exc}") from exc
+    if SHEET_NAME not in workbook.sheetnames:
+        workbook.close()
+        raise MotorDataError(f"El Excel no contiene la hoja obligatoria: {SHEET_NAME}.")
+    return workbook,workbook[SHEET_NAME]
+
+
+def _check_sheet_columns(sheet,columns: dict[str,str]) -> dict[str,int]:
+    validate_column_codes(columns)
+    indices={key:excel_col_index(value) for key,value in columns.items()}
+    highest=max(indices.values())
+    if sheet.max_column is not None and highest >= sheet.max_column:
+        raise MotorDataError(
+            f"La hoja tiene {sheet.max_column} columnas, pero la configuración "
+            f"requiere la columna {highest+1}. Revise el mapeo de columnas."
+        )
+    return indices
+
+
+def lookup_motor_stream(
+    source: bytes | str | Path,
+    code: str,
+    columns: dict[str,str],
+) -> MotorRecord:
+    """Busca MLFB directamente en XLSX sin cargar todas las celdas en memoria."""
+    code=str(code).strip().upper()
+    if len(code)!=11 or not code.isalnum() or not code.isascii():
+        raise MotorDataError("El código MLFB debe tener exactamente 11 caracteres alfanuméricos.")
+    workbook,sheet=_stream_workbook(source)
+    try:
+        indices=_check_sheet_columns(sheet,columns)
+        limit=max(indices.values())+1
+        for row_number,row in enumerate(sheet.iter_rows(min_row=4,max_col=limit,values_only=True),start=4):
+            raw=row[indices["mlfb"]] if indices["mlfb"]<len(row) else None
+            if raw is None or str(raw).strip().upper()!=code:
+                continue
+            hp=required_float(row[indices["hp"]],"HP")
+            inertia=required_float(row[indices["inertia"]],"Inercia")
+            curve=required_float(row[indices["curve"]],"Curvas")
+            hot=required_float(row[indices["hot"]],"Stall HOT")
+            cold=required_float(row[indices["cold"]],"Stall COLD")
+            rpm={"A":3600,"B":1800,"C":1200,"D":900}.get(code[9])
+            return MotorRecord(code,hp,inertia/23.73,curve/100,hot,cold,rpm,row_number-4)
+    except MotorDataError:
+        raise
+    except Exception as exc:
+        raise MotorDataError(f"No se pudo consultar el código MLFB: {exc}") from exc
+    finally:
+        workbook.close()
+    raise MotorDataError(f"No se encontró el código '{code}' en el Excel activo.")
+
+
+def validate_workbook_stream(source: bytes | str | Path,columns: dict[str,str]) -> dict:
+    """Valida y cuenta códigos sin construir un DataFrame enorme."""
+    import re
+    workbook,sheet=_stream_workbook(source)
+    try:
+        indices=_check_sheet_columns(sheet,columns)
+        idx=indices["mlfb"]
+        valid=0
+        total=0
+        for row in sheet.iter_rows(min_row=4,max_col=idx+1,values_only=True):
+            total+=1
+            value=row[idx] if idx<len(row) else None
+            if value is not None and re.fullmatch(r"[A-Z0-9]{11}",str(value).strip().upper()):
+                valid+=1
+        if not valid:
+            raise MotorDataError(
+                "No se encontraron MLFB válidos. Verifique la hoja y las columnas."
+            )
+        return {"filas":total,"mlfb_validos":valid,"columnas":int(sheet.max_column or 0)}
+    except MotorDataError:
+        raise
+    except Exception as exc:
+        raise MotorDataError(f"No se pudo validar el Excel: {exc}") from exc
+    finally:
+        workbook.close()
