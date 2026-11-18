@@ -38,7 +38,13 @@ def test_no_start_when_load_torque_exceeds_motor_torque():
     i.mnv=2000
     r=calculate_motor(i)
     assert r.status_kind=="bad"
-    assert r.values["ta"] is None
+    assert r.values["start_feasible"] is False
+    assert r.values["ta"] is not None and r.values["ta"] < 0
+    assert r.values["ta_algebraic"] == r.values["ta"]
+    assert r.values["ta_physical"] is None
+    assert r.values["torque_margin"] < 0
+    assert r.values["hp_equilibrium"] > i.hp
+    assert "NO físico" in r.diagnosis
 
 
 def test_zero_load_does_not_suppress_startup_time():
@@ -100,3 +106,56 @@ def test_pdf_generates_valid_bytes():
     data=generate_pdf(motor,c,"1LE43214BB1")
     assert data.startswith(b"%PDF")
     assert len(data)>5000
+
+
+def test_insufficient_torque_screenshot_scenario_remains_calculable():
+    motor=MotorInputs(
+        hp=1,rpm_motor=1800,jm=.0064686,
+        stall_hot=18,stall_cold=26,factor_curve=2.5962,
+        rpm_eq=3600,wr2=12,mnv=12,is_pump=True,voltage_pct=100,
+    )
+    r=calculate_motor(motor)
+    assert r.values["MNM"] == .4
+    assert r.values["MMM"] == pytest.approx(1.03848)
+    assert r.values["MMV_nMot"] == pytest.approx(7.92)
+    assert r.status_kind == "bad"
+    assert r.values["ta"] < 0
+    assert r.values["ta_physical"] is None
+    assert r.values["torque_coverage_pct"] == pytest.approx(100*1.03848/7.92)
+    assert r.values["hp_equilibrium"] > 7
+    assert r.values["ta_ceiling"] is not None
+    assert r.values["nGD2"] == pytest.approx(192.0258744)
+
+
+def test_equal_torque_is_indeterminate_but_generates_pdf():
+    motor=MotorInputs(hp=100,rpm_motor=1800,jm=1,rpm_eq=1800,wr2=10,
+                      mnv=10,is_pump=False,mmv_factor=1,
+                      factor_curve=10/(round(100*726.15/1800,2)),
+                      stall_hot=20,stall_cold=30)
+    r=calculate_motor(motor)
+    assert r.values["torque_margin"] == pytest.approx(0)
+    assert r.status_kind == "bad"
+    assert r.values["ta"] is None
+    from reports.pdf_report import generate_pdf
+    assert generate_pdf(r,None,"CASO-INDEFINIDO").startswith(b"%PDF")
+
+
+def test_no_thermal_simulation_if_motor_cannot_accelerate():
+    i,_=reference()
+    i.mnv=2000
+    m=calculate_motor(i)
+    cons=calculate_consecutive(m,ConsecutiveInputs(
+        f=.8,gfe=30,stator_factor=.7,starts=10,starts_hour=4,
+    ))
+    assert cons.cold==cons.hot==cons.hourly==[]
+    assert any("NO" in warning for warning in cons.warnings)
+
+
+def test_no_start_generates_pdf_and_preserves_diagnostics():
+    i,_=reference()
+    i.mnv=2000
+    m=calculate_motor(i)
+    from reports.pdf_report import generate_pdf
+    pdf=generate_pdf(m,None,"1LE43214BB1")
+    assert pdf.startswith(b"%PDF")
+    assert len(pdf)>3000
