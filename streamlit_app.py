@@ -496,8 +496,16 @@ def home():
             if st.button("Continuar / Continue",type="primary",width="stretch"):
                 ss["screen"]="calculator"
                 st.rerun()
-            st.caption("Conserva el método original, sus fórmulas, la búsqueda MLFB, las simulaciones térmicas y el PDF.")
-    st.caption("Versión Streamlit · Se elimina el comparador independiente de MLFB para mantener el alcance exclusivamente en arranque de motores.")
+            st.caption("Cálculo automático desde Excel o captura manual. "
+                       "El PDF se puede descargar incluso cuando el motor no supera la carga.")
+    st.markdown(
+        '<div class="abb-steps"><div class="abb-step"><b>1</b>Motor por MLFB o manual</div>'
+        '<div class="abb-step"><b>2</b>Equipo accionado</div>'
+        '<div class="abb-step"><b>3</b>Evaluación y escenarios</div>'
+        '<div class="abb-step"><b>4</b>Informe PDF completo</div></div>',
+        unsafe_allow_html=True,
+    )
+    st.caption("Calculadora de arranque de motores · Se conserva el módulo térmico y se excluye el comparador MLFB independiente.")
 
 
 def excel_controls():
@@ -599,7 +607,7 @@ def main():
 
     result=calculate_motor(motor_inputs())
     print("[MOTOR-BOOT] Calculadora: motor calculado", flush=True)
-    render_diagnosis(result)
+    render_overview(result)
     locked=ss["motor_found"] and not ss["unlock_motor"]
 
     left,right=st.columns(2,vertical_alignment="top")
@@ -645,18 +653,28 @@ def main():
             with b:st.number_input("Volts número",min_value=0,max_value=100,step=1,key="voltage_number",label_visibility="collapsed",on_change=on_voltage_number)
             st.caption("Factor aplicado al par nominal: (voltaje / 100)²")
 
-    # Adaptaciones exactamente en la secuencia que utiliza el formulario original.
+    # Adaptaciones conservadas en el orden del formulario original.
     with st.container(border=True):
         section("Adaptaciones / Adaptations")
+        time_label=("ta algebraico (NO físico, s)" if result.values.get("start_feasible") is False
+                    else "ta / Tiempo arranque (s)")
         maps=[("MMV nMot. (kgm)","MMV_nMot"),("GD2V (kgm²)","GD2V"),
               ("GD2V nMot. (kgm²)","GD2V_nMot"),("nGD2 (kgm²)","nGD2"),
-              ("ta (segundos)","ta"),("ta CEILING (segundos)","ta_ceiling")]
+              (time_label,"ta"),("ta CEILING algebraico (s)","ta_ceiling")]
         for index in range(0,len(maps),3):
             cols=st.columns(3)
             for col,(label,k) in zip(cols,maps[index:index+3]):
                 with col:readonly(label,result.values[k])
         if result.warnings:
             st.warning(" · ".join(dict.fromkeys(result.warnings)))
+        if result.values.get("start_feasible") is False:
+            st.error("La ecuación sí se ha calculado. Como el margen de par es negativo o nulo, "
+                     "ta es algebraico y NO representa un arranque realizable.")
+        elif result.values.get("ta_physical") is not None:
+            st.caption("La ecuación tiene par neto positivo. Verifique por separado "
+                       "los límites HOT/COLD y las condiciones reales de operación.")
+
+    render_sensitivity(result)
 
     cons=None
     if result.values["ta"] is not None and not ss["enable_consecutive"]:
@@ -697,17 +715,21 @@ def main():
                 for col,(label,key) in zip(cols,specs[i:i+4]):
                     with col:readonly(label,cons.values.get(key))
             for warning in dict.fromkeys(cons.warnings):st.warning(warning)
-            section("Gráfica Arranques en Frío / Cold Starts Chart")
-            st.plotly_chart(thermal_chart(cons.cold,"Temperatura por arranque en frío",TEMP_MAX_COLD),width="stretch")
-            st.markdown("**Tabla Arranques en Frío / Cold Starts Table**")
-            status_table(cons.cold)
-            section("Gráfica Arranques en Caliente / Hot Starts Chart")
-            st.plotly_chart(thermal_chart(cons.hot,"Temperatura por arranque en caliente",TEMP_MAX_HOT),width="stretch")
-            st.markdown("**Tabla Arranques en Caliente / Hot Starts Table**")
-            status_table(cons.hot)
-            section("Arranques por Hora / Starts per Hour")
-            status_table(cons.hourly,hourly=True)
-            st.plotly_chart(thermal_chart(cons.hourly,"Temperatura por hora de operación",None,hourly=True),width="stretch")
+            if cons.cold or cons.hot or cons.hourly:
+                section("Gráfica Arranques en Frío / Cold Starts Chart")
+                st.plotly_chart(thermal_chart(cons.cold,"Temperatura por arranque en frío",TEMP_MAX_COLD),width="stretch")
+                st.markdown("**Tabla Arranques en Frío / Cold Starts Table**")
+                status_table(cons.cold)
+                section("Gráfica Arranques en Caliente / Hot Starts Chart")
+                st.plotly_chart(thermal_chart(cons.hot,"Temperatura por arranque en caliente",TEMP_MAX_HOT),width="stretch")
+                st.markdown("**Tabla Arranques en Caliente / Hot Starts Table**")
+                status_table(cons.hot)
+                section("Arranques por Hora / Starts per Hour")
+                status_table(cons.hourly,hourly=True)
+                st.plotly_chart(thermal_chart(cons.hourly,"Temperatura por hora de operación",None,hourly=True),width="stretch")
+            else:
+                st.info("Los parámetros capturados quedan disponibles para el informe. "
+                        "No se muestran gráficas de arranques físicos cuando falta par de aceleración.")
 
     with st.container(border=True):
         section("Acciones / Actions")
@@ -715,23 +737,39 @@ def main():
         with c1:
             st.button("↻ Reiniciar / Reset",width="stretch",on_click=reset_model)
         with c2:
-            if st.button("✓ Calcular / Calculate",type="primary",width="stretch"):
-                if result.values["ta"] is None:st.error("Faltan valores para calcular el tiempo de arranque; revise los campos y el factor de curvas.")
-                else:st.success(f"Tiempo de arranque = {display(result.values['ta'])} s · {result.status}")
+            if st.button("✓ Evaluar / Calculate",type="primary",width="stretch"):
+                if result.values.get("start_feasible") is False:
+                    st.error(
+                        f"{result.status}. Resultado algebraico ta = "
+                        f"{display(result.values.get('ta_algebraic'))} s (NO físico). "
+                        "Los cálculos siguen disponibles y puedes exportar el informe PDF."
+                    )
+                elif result.values.get("ta_physical") is not None:
+                    if result.status_kind=="ok":
+                        st.success(f"Tiempo físico calculado = {display(result.values['ta_physical'])} s. "
+                                   f"{result.status}")
+                    else:
+                        st.warning(f"Tiempo físico calculado = {display(result.values['ta_physical'])} s. "
+                                   f"{result.status}")
+                else:
+                    st.info("Evaluación parcial: compruebe HP, RPM, inercia, MNV, "
+                            "factor de curvas y Stall HOT/COLD. "
+                            "El informe PDF documenta los valores que sí se calcularon.")
         with c3:
             if st.button("∑ Operaciones utilizadas",width="stretch"):
                 operations_dialog(result,cons)
         with c4:
-            if result.values["ta"] is not None:
-                try:
-                    pdf=generate_pdf(result,cons,ss["mlfb"],optional_resource("assets/logo.png"))
-                    st.download_button("↓ Exportar PDF",pdf,
-                                       file_name=f"{ss['mlfb'].strip().upper() or 'resultado_arranque'} - {date.today():%d-%m-%Y}.pdf",
-                                       mime="application/pdf",type="primary",width="stretch")
-                except Exception as exc:
-                    st.error(f"No se pudo generar PDF: {exc}")
-            else:
-                st.button("↓ Exportar PDF",disabled=True,width="stretch")
+            try:
+                # También se genera para fallos de par, límites térmicos y resultados parciales.
+                pdf=generate_pdf(result,cons,ss["mlfb"],optional_resource("assets/logo.png"))
+                status_tag=("NO_APTO" if result.status_kind=="bad" else
+                            "PARCIAL" if result.status_kind=="info" else "CALCULO")
+                st.download_button("↓ Exportar informe PDF",pdf,
+                                   file_name=f"{ss['mlfb'].strip().upper() or 'motor'}_{status_tag}_{date.today():%Y-%m-%d}.pdf",
+                                   mime="application/pdf",type="primary",width="stretch",
+                                   help="El PDF incluye resultados algebraicos, diagnóstico y operaciones aun si el motor no arranca.")
+            except Exception as exc:
+                st.error(f"No se pudo generar PDF: {exc}")
         st.markdown("**Guardar / recuperar un cálculo**")
         a,b=st.columns(2)
         with a:
