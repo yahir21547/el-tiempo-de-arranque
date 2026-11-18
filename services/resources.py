@@ -58,7 +58,18 @@ def ensure_resource(local: str) -> Path:
 
 
 def optional_resource(relative: str) -> Path | None:
-    try:
-        return ensure_resource(relative)
-    except Exception:
+    """Devuelve un recurso decorativo local, sin bloquear la UI descargándolo."""
+    if relative not in MANIFEST:
         return None
+    path = location(relative)
+    try:
+        return path if path.is_file() and path.stat().st_size > 10 else None
+    except OSError:
+        return None
+
+
+def public_resource_url(relative: str) -> str:
+    """URL pública para imágenes, cargada por el navegador, no por Python."""
+    if relative not in MANIFEST:
+        raise ValueError(f"Recurso desconocido: {relative}")
+    return BASE + quote(MANIFEST[relative])
