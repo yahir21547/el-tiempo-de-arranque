@@ -22,8 +22,8 @@ from core.engine import (
     TEMP_MAX_COLD, TEMP_MAX_HOT,
 )
 from services.motors import (
-    DEFAULT_COLS, MotorDataError, read_motors, lookup_motor,
-    validate_workbook,
+    DEFAULT_COLS, MotorDataError, lookup_motor_stream,
+    validate_workbook_stream, validate_column_codes,
 )
 from services.resources import EXCEL_NAME, ensure_resource, optional_resource, public_resource_url
 from services.charts import thermal_chart
@@ -110,27 +110,16 @@ for code, col in DEFAULT_COLS.items():
 ss = st.session_state
 
 
-@st.cache_data(show_spinner=False, max_entries=3)
-def parse_excel_bytes(content: bytes) -> pd.DataFrame:
-    return read_motors(content)
-
-
-def current_excel() -> tuple[pd.DataFrame | None,str,str]:
-    """Usa XLSX subido en sesión o Excel original local/descargado."""
+def current_excel() -> tuple[bytes | Path | None,str,str]:
+    """Resuelve la fuente del Excel SOLO cuando se pulsa Buscar.
+    Nunca carga todas las filas de la hoja al renderizar la pantalla.
+    """
     if ss["custom_excel_bytes"] is not None:
-        data=ss["custom_excel_bytes"]
-        label=ss["active_excel_name"]
-    else:
-        try:
-            path=ensure_resource("data/" + EXCEL_NAME)
-            data=path.read_bytes()
-            label=EXCEL_NAME
-        except Exception as exc:
-            return None,"",str(exc)
+        return ss["custom_excel_bytes"], ss["active_excel_name"], ""
     try:
-        return parse_excel_bytes(data),label,""
-    except MotorDataError as exc:
-        return None,label,str(exc)
+        return ensure_resource("data/" + EXCEL_NAME), EXCEL_NAME, ""
+    except Exception as exc:
+        return None, "", str(exc)
 
 
 def field_value(key: str):
@@ -230,12 +219,16 @@ def import_project(data: bytes):
 def search_motor_callback():
     """Callback se ejecuta antes de montar widgets y evita SessionStateError."""
     ss["search_error"]=""
-    frame,_,error=current_excel()
-    if frame is None:
+    print("[MOTOR-LOOKUP] Búsqueda MLFB solicitada", flush=True)
+    source,_,error=current_excel()
+    if source is None:
         ss["search_error"]=error or "No está disponible la base Excel."
+        print("[MOTOR-LOOKUP] Falló descarga de Excel: " + ss["search_error"], flush=True)
         return
     try:
-        motor=lookup_motor(frame,ss["mlfb"],ss["current_map"])
+        print("[MOTOR-LOOKUP] Libro obtenido; iniciando consulta streaming", flush=True)
+        motor=lookup_motor_stream(source,ss["mlfb"],ss["current_map"])
+        print("[MOTOR-LOOKUP] Motor encontrado sin cargar la hoja completa", flush=True)
         record={"hp":motor.hp,"rpm_motor":motor.rpm_motor,"jm":motor.jm,
                 "stall_hot":motor.stall_hot,"stall_cold":motor.stall_cold,"factor_curve":motor.curve_factor}
         for k,v in record.items():ss[k]=display(v,7)
@@ -340,9 +333,9 @@ def home():
     st.caption("Versión Streamlit · Se elimina el comparador independiente de MLFB para mantener el alcance exclusivamente en arranque de motores.")
 
 
-def excel_controls(frame: pd.DataFrame | None):
+def excel_controls():
     with st.expander("Configuración de Archivo / File Configuration",expanded=False):
-        st.caption("El Excel V46 del repositorio se carga automáticamente. Subir otro archivo es opcional.")
+        st.caption("El Excel V46 del repositorio se consulta automáticamente al buscar un MLFB; no necesitas cargarlo. Cambiarlo es opcional.")
         x1,x2=st.columns([3,2],vertical_alignment="center")
         with x1:
             st.text_input("Archivo Excel activo",value=ss["active_excel_name"],disabled=True)
@@ -357,7 +350,7 @@ def excel_controls(frame: pd.DataFrame | None):
             if st.button("Guardar columnas",width="stretch"):
                 new_map={k:str(ss[f"cfg_{k}"]).strip().upper() for k in DEFAULT_COLS}
                 try:
-                    if frame is not None:validate_workbook(frame,new_map)
+                    validate_column_codes(new_map)
                     ss["current_map"]=new_map
                     ss["notice"]="Correspondencia de columnas actualizada para esta sesión."
                     st.rerun()
@@ -370,8 +363,9 @@ def excel_controls(frame: pd.DataFrame | None):
             sha=hashlib.sha256(blob).hexdigest()
             if sha!=ss["custom_excel_hash"]:
                 try:
-                    df=parse_excel_bytes(blob)
-                    report=validate_workbook(df,ss["current_map"])
+                    if len(blob)>25*1024*1024:
+                        raise MotorDataError("Archivo demasiado grande: el límite de esta app es 25 MB.")
+                    report=validate_workbook_stream(blob,ss["current_map"])
                     ss["custom_excel_bytes"],ss["custom_excel_hash"]=blob,sha
                     ss["active_excel_name"],ss["source_version"]=upl.name,"Archivo sustituido en esta sesión"
                     ss["motor_found"]=False
@@ -408,8 +402,7 @@ def excel_controls(frame: pd.DataFrame | None):
                 ss["upload_epoch"]+=1
                 ss["motor_found"]=False
                 st.rerun()
-        if frame is not None:
-            st.caption(f"Hoja: Core Level Data 60 Hz · Encabezado: fila 3 · {frame.shape[0]} filas, {frame.shape[1]} columnas. Configuración actual por sesión.")
+        st.caption("Hoja: Core Level Data 60 Hz · Encabezado: fila 3 · Las columnas se aplican en la siguiente búsqueda.")
 
 
 def main():
@@ -417,11 +410,8 @@ def main():
     if ss["notice"]:
         st.success(ss["notice"])
         ss["notice"]=""
-    frame,filename,load_error=current_excel()
-    if frame is None:
-        st.error("No se pudo abrir la base Excel incluida. Puedes seguir con captura manual, pero la búsqueda MLFB necesita la base. " + load_error)
-    else:
-        st.markdown(f'<span class="abb-chip">Excel activo: {escape(filename)} · {len(frame):,} registros de hoja</span>',unsafe_allow_html=True)
+    print("[MOTOR-BOOT] Calculadora: formulario iniciado sin leer Excel", flush=True)
+    st.markdown(f'<span class="abb-chip">Excel disponible: {escape(ss["active_excel_name"])} · Consulta bajo demanda</span>',unsafe_allow_html=True)
     st.write("")
     with st.container(border=True):
         section("Buscar por Código MLFB / Search by MLFB Code")
@@ -429,7 +419,7 @@ def main():
         with r1:
             input_field("Código MLFB (11 caracteres) / MLFB Code", "mlfb",placeholder="Ej. 1LE... (11 caracteres)")
         with r2:
-            st.button("Buscar / Search",type="primary",width="stretch",disabled=frame is None,
+            st.button("Buscar / Search",type="primary",width="stretch",
                       on_click=search_motor_callback)
         with r3:
             st.toggle("Editar datos de Excel",key="unlock_motor",help="Desbloquear los valores que se autocompletan desde la base")
@@ -437,9 +427,11 @@ def main():
             st.error(ss["search_error"])
         if ss["motor_found"]:
             st.caption("✓ Datos cargados de Excel. Campos de motor bloqueados para proteger la referencia; puede habilitar la edición.")
-    excel_controls(frame)
+    excel_controls()
+    print("[MOTOR-BOOT] Calculadora: formulario MLFB y configuración listos", flush=True)
 
     result=calculate_motor(motor_inputs())
+    print("[MOTOR-BOOT] Calculadora: motor calculado", flush=True)
     render_diagnosis(result)
     locked=ss["motor_found"] and not ss["unlock_motor"]
 
