@@ -144,6 +144,7 @@ div[data-testid="stExpander"] summary{font-weight:700;color:#1e3a52}
   [data-testid="stHorizontalBlock"]{gap:.38rem}
 }
 </style>
+"""
 
 st.markdown(CSS, unsafe_allow_html=True)
 
