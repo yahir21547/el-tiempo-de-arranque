@@ -1,0 +1,17 @@
+# Configuración de despliegue de la calculadora de motores.
+# Se fuerza escucha IPv4 para evitar posibles fallos de proxy en Community Cloud.
+[server]
+address = "0.0.0.0"
+headless = true
+maxUploadSize = 40
+
+[theme]
+base = "light"
+primaryColor = "#d81e05"
+backgroundColor = "#eef2f6"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1f2937"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
