@@ -82,6 +82,8 @@ def calculate_motor(inputs: MotorInputs) -> MotorResult:
     val: dict[str, Optional[float]] = {k: None for k in (
         "WR2_normal", "MNV_normal", "MMV", "JV", "MNM", "JM", "GD2M", "MMM",
         "MMV_nMot", "GD2V", "GD2V_nMot", "nGD2", "ta", "ta_ceiling",
+        "ta_algebraic", "ta_physical", "torque_margin", "torque_coverage_pct",
+        "hp_equilibrium", "hp_deficit", "speed_ratio", "start_feasible",
     )}
     out.values = val
 
@@ -143,26 +145,58 @@ def calculate_motor(inputs: MotorInputs) -> MotorResult:
                     log("nGD2", f"{display(val['GD2V_nMot'])} + {display(val['GD2M'])}", val["nGD2"])
 
     mmm, load = val["MMM"], val["MMV_nMot"]
-    if mmm is not None and load is not None and mmm <= load:
-        out.status = "NO SOPORTA ARRANQUE"
-        out.status_kind = "bad"
-        out.diagnosis = f"El par medio del motor MMM ({display(mmm)}) no supera el par referido de la carga ({display(load)})."
-        return out
+    if inputs.rpm_motor is not None and inputs.rpm_motor > 0 and inputs.rpm_eq is not None:
+        val["speed_ratio"] = inputs.rpm_eq / inputs.rpm_motor
+    if mmm is not None and load is not None:
+        val["torque_margin"] = mmm - load
+        val["start_feasible"] = mmm > load
+        if load > 0:
+            val["torque_coverage_pct"] = 100 * mmm / load
+        log("Margen de par", f"{display(mmm, 7)} - {display(load, 7)}", val["torque_margin"])
+        if val["torque_coverage_pct"] is not None:
+            log("Cobertura de par", f"({display(mmm, 7)} / {display(load, 7)}) x 100", val["torque_coverage_pct"])
+        if (inputs.rpm_motor is not None and inputs.rpm_motor > 0
+                and inputs.factor_curve is not None and inputs.factor_curve > 0
+                and voltage_factor > 0 and load >= 0):
+            val["hp_equilibrium"] = (load * inputs.rpm_motor) / (726.15 * inputs.factor_curve * voltage_factor)
+            if inputs.hp is not None:
+                val["hp_deficit"] = max(0.0, val["hp_equilibrium"] - inputs.hp)
+            log("HP equilibrio teórico", f"{display(load, 7)} x {inputs.rpm_motor} / (726.15 x {display(inputs.factor_curve, 7)} x {display(voltage_factor, 7)})", val["hp_equilibrium"])
 
+    # Mantener la operación algebraica AUN si no hay par para arrancar.
+    # Un valor negativo NO es un tiempo físico; es únicamente el resultado
+    # de evaluar la ecuación fuera de su dominio de aplicación.
     if None not in (val["nGD2"], mmm, load, inputs.rpm_motor):
         denom = 375 * (mmm - load)
-        if denom > 0:
+        if abs(denom) > 1e-12:
             ta_raw = (val["nGD2"] * inputs.rpm_motor) / denom
-            val["ta"] = round(ta_raw, 2)
+            val["ta_algebraic"] = round(ta_raw, 2)
+            val["ta"] = val["ta_algebraic"]
             val["ta_ceiling"] = math.ceil(ta_raw)
-            log("ta", f"({display(val['nGD2'])} x {inputs.rpm_motor}) / (375 x ({display(mmm)} - {display(load)}))", val["ta"])
-            log("ta CEILING", f"ceil({display(ta_raw, 7)})", val["ta_ceiling"])
+            log("ta algebraico", f"({display(val['nGD2'])} x {inputs.rpm_motor}) / (375 x ({display(mmm)} - {display(load)}))", val["ta"])
+            log("ta CEILING algebraico", f"ceil({display(ta_raw, 7)})", val["ta_ceiling"])
+            if val["start_feasible"]:
+                val["ta_physical"] = val["ta"]
+        else:
+            out.warnings.append("La diferencia de pares es cero: la ecuación del tiempo es indefinida (división entre cero).")
 
-    ta = val["ta"]
+    ta = val["ta_physical"]
     hot, cold = inputs.stall_hot, inputs.stall_cold
-    if ta is None or hot is None or cold is None:
+    if val["start_feasible"] is False:
+        out.status, out.status_kind = "NO SOPORTA ARRANQUE: PAR INSUFICIENTE", "bad"
+        algebra = val["ta_algebraic"]
+        if algebra is None:
+            reason = "Los pares están equilibrados; el tiempo algebraico es indefinido."
+        else:
+            reason = f"La ecuación devuelve {display(algebra)} s, valor algebraico NO físico."
+        out.diagnosis = (
+            f"MMM={display(mmm, 5)} kgm frente a carga={display(load, 5)} kgm; "
+            f"margen={display(val['torque_margin'], 5)} kgm. {reason} "
+            "Se conservan los cálculos y el reporte técnico."
+        )
+    elif ta is None or hot is None or cold is None:
         out.status = "DATOS INSUFICIENTES"
-        out.diagnosis = "Complete los datos del motor, equipo, factor de curvas y Stall HOT/COLD para evaluar el arranque."
+        out.diagnosis = "Complete los datos disponibles y Stall HOT/COLD para evaluar el arranque."
     elif ta <= 0:
         out.status, out.status_kind = "NO SOPORTA ARRANQUE", "bad"
         out.diagnosis = "Tiempo de arranque no físico. Revise los parámetros."
@@ -176,8 +210,8 @@ def calculate_motor(inputs: MotorInputs) -> MotorResult:
         out.status, out.status_kind = "SOPORTE PARCIAL: SOLO EN CALIENTE", "warn"
         out.diagnosis = f"ta={display(ta)} s < HOT={display(hot)} s, pero >= COLD={display(cold)} s."
     else:
-        out.status, out.status_kind = "NO SOPORTA ARRANQUE", "bad"
-        out.diagnosis = f"ta={display(ta)} s >= HOT={display(hot)} s y >= COLD={display(cold)} s."
+        out.status, out.status_kind = "NO SOPORTA ARRANQUE: LÍMITE TÉRMICO", "bad"
+        out.diagnosis = f"El tiempo físico ta={display(ta)} s supera los límites HOT={display(hot)} s y COLD={display(cold)} s."
     return out
 
 
@@ -238,6 +272,13 @@ def calculate_consecutive(motor: MotorResult, data: ConsecutiveInputs) -> Consec
         v["diamxlongitud"] = ((data.rotor_diameter_dm - 0.1) * 3.1416 * 0.1 * 7.8
                               * data.stack_length_dm * 0.945)
         log("Diamxlongitud", "(diam - 0.1) x 3.1416 x 0.1 x 7.8 x longitud x 0.945", v["diamxlongitud"])
+
+    if motor.values.get("start_feasible") is False:
+        out.warnings.append(
+            "Motor sin par suficiente: el tiempo algebraico se documenta, "
+            "pero NO se generan gráficas térmicas ni arranques consecutivos físicos."
+        )
+        return out
 
     rpm = motor.inputs.rpm_motor
     ngd2, mmm, load, ta = m.get("nGD2"), m.get("MMM"), m.get("MMV_nMot"), m.get("ta")
