@@ -12,6 +12,7 @@ from pathlib import Path
 from html import escape
 from typing import Any
 
+print('[MOTOR-BOOT] Inicio de script Python', flush=True)
 import pandas as pd
 import streamlit as st
 
@@ -24,10 +25,11 @@ from services.motors import (
     DEFAULT_COLS, MotorDataError, read_motors, lookup_motor,
     validate_workbook,
 )
-from services.resources import EXCEL_NAME, ensure_resource, optional_resource
+from services.resources import EXCEL_NAME, ensure_resource, optional_resource, public_resource_url
 from services.charts import thermal_chart
 from services.persistence import github_settings, validate_admin, persist_to_github, PersistenceError
 from reports.pdf_report import generate_pdf
+print('[MOTOR-BOOT] Módulos importados correctamente', flush=True)
 
 st.set_page_config(
     page_title="Cálculo de Tiempo de Arranque | Motor Calculations",
@@ -306,12 +308,12 @@ def header():
     col1,col2,col3=st.columns([1,7,1.1],vertical_alignment="center")
     with col1:
         logo=optional_resource("assets/logo.png")
-        if logo: st.image(str(logo),width=85)
+        st.image(str(logo) if logo else public_resource_url("assets/logo.png"),width=85)
     with col2:
         st.markdown('<div class="abb-hero"><h1>Cálculo de Tiempo de Arranque</h1><p>Motor Start-Up Time Calculation · Evaluación térmica, arranques consecutivos y reporte técnico</p></div>',unsafe_allow_html=True)
     with col3:
         img=optional_resource("assets/motor_header.png")
-        if img: st.image(str(img),width=95)
+        st.image(str(img) if img else public_resource_url("assets/motor_header.png"),width=95)
     if st.button("← Menú principal / Main menu",key="back_home"):
         ss["screen"]="home"
         st.rerun()
@@ -322,10 +324,10 @@ def home():
     cols=st.columns([1,3,1],vertical_alignment="center")
     with cols[0]:
         pic=optional_resource("assets/logo.png")
-        if pic: st.image(str(pic),width="stretch")
+        st.image(str(pic) if pic else public_resource_url("assets/logo.png"),width="stretch")
     with cols[2]:
         pic=optional_resource("assets/motor_header.png")
-        if pic: st.image(str(pic),width="stretch")
+        st.image(str(pic) if pic else public_resource_url("assets/motor_header.png"),width="stretch")
     with cols[1]:
         with st.container(border=True):
             st.markdown("### Bienvenido / Welcome")
@@ -584,5 +586,7 @@ def main():
     st.caption("Parámetros térmicos heredados del original. Los resultados requieren validación técnica antes de una decisión de ingeniería. ")
 
 
+print(f"[MOTOR-BOOT] Renderizando pantalla: {ss['screen']}", flush=True)
 if ss["screen"]=="home":home()
 else:main()
+print("[MOTOR-BOOT] Script ejecutado sin excepción", flush=True)
