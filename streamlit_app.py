@@ -281,7 +281,7 @@ def status_table(rows: list[dict],hourly=False):
     colors={"OK":"#eaf5ee","Cerca":"#fff3cd","Excede":"#fdecea"}
     styled=(df.style.apply(lambda row: [f"background-color:{colors.get(row['Estado'],'#fff')}" for _ in row],axis=1)
                  .format({"°C":"{:.3f}",**({"t (seg)":"{:.3f}"} if hourly else {"Seg / Sec":"{:.3f}"})}))
-    st.dataframe(styled,hide_index=True,use_container_width=True,height=min(350,40+35*len(df)))
+    st.dataframe(styled,hide_index=True,width="stretch",height=min(350,40+35*len(df)))
 
 
 @st.dialog("Operaciones utilizadas / Operations Used",width="large")
@@ -290,14 +290,14 @@ def operations_dialog(motor: MotorResult, cons: ConsecutiveResult | None):
     with tab1:
         ops=list(motor.operations)+(cons.operations if cons else [])
         if ops:
-            st.dataframe(pd.DataFrame(ops,columns=["Variable","Operación aplicada","Resultado"]),hide_index=True,use_container_width=True)
+            st.dataframe(pd.DataFrame(ops,columns=["Variable","Operación aplicada","Resultado"]),hide_index=True,width="stretch")
             st.download_button("Descargar operaciones CSV",pd.DataFrame(ops,columns=["Variable","Operación","Resultado"]).to_csv(index=False).encode("utf-8-sig"),"operaciones_motor.csv",mime="text/csv")
         else:st.info("Ingrese datos y ejecute un cálculo.")
     with tab2:
         if cons and (cons.cold or cons.hot or cons.hourly):
             for title,rows in [("Arranques en frío",cons.cold),("Arranques en caliente",cons.hot),("Arranques por hora",cons.hourly)]:
                 st.markdown("**"+title+"**")
-                st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True,height=215)
+                st.dataframe(pd.DataFrame(rows),hide_index=True,width="stretch",height=215)
         else:
             st.info("Active y complete Arranques consecutivos para ver las tablas de operaciones.")
 
@@ -322,16 +322,16 @@ def home():
     cols=st.columns([1,3,1],vertical_alignment="center")
     with cols[0]:
         pic=optional_resource("assets/logo.png")
-        if pic: st.image(str(pic),use_container_width=True)
+        if pic: st.image(str(pic),width="stretch")
     with cols[2]:
         pic=optional_resource("assets/motor_header.png")
-        if pic: st.image(str(pic),use_container_width=True)
+        if pic: st.image(str(pic),width="stretch")
     with cols[1]:
         with st.container(border=True):
             st.markdown("### Bienvenido / Welcome")
             st.write("¿Qué tipo de cálculo quieres realizar? / What type of calculation do you want to perform?")
             st.selectbox("Herramienta / Tool",["Cálculo de Tiempo de Arranque / Start-Up Time Calculation"],key="selection")
-            if st.button("Continuar / Continue",type="primary",use_container_width=True):
+            if st.button("Continuar / Continue",type="primary",width="stretch"):
                 ss["screen"]="calculator"
                 st.rerun()
             st.caption("Conserva el método original, sus fórmulas, la búsqueda MLFB, las simulaciones térmicas y el PDF.")
@@ -352,7 +352,7 @@ def excel_controls(frame: pd.DataFrame | None):
             with col:st.text_input(f"Col. {label}",key=f"cfg_{key}",max_chars=3)
         action=st.columns([1.5,1.5,4])
         with action[0]:
-            if st.button("Guardar columnas",use_container_width=True):
+            if st.button("Guardar columnas",width="stretch"):
                 new_map={k:str(ss[f"cfg_{k}"]).strip().upper() for k in DEFAULT_COLS}
                 try:
                     if frame is not None:validate_workbook(frame,new_map)
@@ -361,7 +361,7 @@ def excel_controls(frame: pd.DataFrame | None):
                     st.rerun()
                 except MotorDataError as exc:st.error(str(exc))
         with action[1]:
-            st.button("Restaurar columnas",use_container_width=True,on_click=restore_column_map)
+            st.button("Restaurar columnas",width="stretch",on_click=restore_column_map)
         upl=st.file_uploader("Opcional: reemplazar base Excel (.xlsx) para esta sesión",type=["xlsx"],key=f"uploaded_excel_{ss['upload_epoch']}")
         if upl is not None:
             blob=upl.getvalue()
@@ -427,7 +427,7 @@ def main():
         with r1:
             input_field("Código MLFB (11 caracteres) / MLFB Code", "mlfb",placeholder="Ej. 1LE... (11 caracteres)")
         with r2:
-            st.button("Buscar / Search",type="primary",use_container_width=True,disabled=frame is None,
+            st.button("Buscar / Search",type="primary",width="stretch",disabled=frame is None,
                       on_click=search_motor_callback)
         with r3:
             st.toggle("Editar datos de Excel",key="unlock_motor",help="Desbloquear los valores que se autocompletan desde la base")
@@ -499,7 +499,7 @@ def main():
 
     cons=None
     if result.values["ta"] is not None and not ss["enable_consecutive"]:
-        if st.button("Activar Arranques consecutivos / Consecutive Starts",type="primary",use_container_width=True):
+        if st.button("Activar Arranques consecutivos / Consecutive Starts",type="primary",width="stretch"):
             ss["enable_consecutive"]=True
             st.rerun()
     if ss["enable_consecutive"]:
@@ -507,7 +507,7 @@ def main():
             section("Arranques consecutivos / Consecutive Starts")
             top=st.columns([5,1])
             with top[1]:
-                if st.button("Ocultar módulo",use_container_width=True):
+                if st.button("Ocultar módulo",width="stretch"):
                     ss["enable_consecutive"]=False
                     st.rerun()
             row=st.columns(4)
@@ -537,28 +537,28 @@ def main():
                     with col:readonly(label,cons.values.get(key))
             for warning in dict.fromkeys(cons.warnings):st.warning(warning)
             section("Gráfica Arranques en Frío / Cold Starts Chart")
-            st.plotly_chart(thermal_chart(cons.cold,"Temperatura por arranque en frío",TEMP_MAX_COLD),use_container_width=True)
+            st.plotly_chart(thermal_chart(cons.cold,"Temperatura por arranque en frío",TEMP_MAX_COLD),width="stretch")
             st.markdown("**Tabla Arranques en Frío / Cold Starts Table**")
             status_table(cons.cold)
             section("Gráfica Arranques en Caliente / Hot Starts Chart")
-            st.plotly_chart(thermal_chart(cons.hot,"Temperatura por arranque en caliente",TEMP_MAX_HOT),use_container_width=True)
+            st.plotly_chart(thermal_chart(cons.hot,"Temperatura por arranque en caliente",TEMP_MAX_HOT),width="stretch")
             st.markdown("**Tabla Arranques en Caliente / Hot Starts Table**")
             status_table(cons.hot)
             section("Arranques por Hora / Starts per Hour")
             status_table(cons.hourly,hourly=True)
-            st.plotly_chart(thermal_chart(cons.hourly,"Temperatura por hora de operación",None,hourly=True),use_container_width=True)
+            st.plotly_chart(thermal_chart(cons.hourly,"Temperatura por hora de operación",None,hourly=True),width="stretch")
 
     with st.container(border=True):
         section("Acciones / Actions")
         c1,c2,c3,c4=st.columns(4)
         with c1:
-            st.button("↻ Reiniciar / Reset",use_container_width=True,on_click=reset_model)
+            st.button("↻ Reiniciar / Reset",width="stretch",on_click=reset_model)
         with c2:
-            if st.button("✓ Calcular / Calculate",type="primary",use_container_width=True):
+            if st.button("✓ Calcular / Calculate",type="primary",width="stretch"):
                 if result.values["ta"] is None:st.error("Faltan valores para calcular el tiempo de arranque; revise los campos y el factor de curvas.")
                 else:st.success(f"Tiempo de arranque = {display(result.values['ta'])} s · {result.status}")
         with c3:
-            if st.button("∑ Operaciones utilizadas",use_container_width=True):
+            if st.button("∑ Operaciones utilizadas",width="stretch"):
                 operations_dialog(result,cons)
         with c4:
             if result.values["ta"] is not None:
@@ -566,15 +566,15 @@ def main():
                     pdf=generate_pdf(result,cons,ss["mlfb"],optional_resource("assets/logo.png"))
                     st.download_button("↓ Exportar PDF",pdf,
                                        file_name=f"{ss['mlfb'].strip().upper() or 'resultado_arranque'} - {date.today():%d-%m-%Y}.pdf",
-                                       mime="application/pdf",type="primary",use_container_width=True)
+                                       mime="application/pdf",type="primary",width="stretch")
                 except Exception as exc:
                     st.error(f"No se pudo generar PDF: {exc}")
             else:
-                st.button("↓ Exportar PDF",disabled=True,use_container_width=True)
+                st.button("↓ Exportar PDF",disabled=True,width="stretch")
         st.markdown("**Guardar / recuperar un cálculo**")
         a,b=st.columns(2)
         with a:
-            st.download_button("Descargar proyecto JSON",save_project(),file_name="proyecto_motor.json",mime="application/json",use_container_width=True)
+            st.download_button("Descargar proyecto JSON",save_project(),file_name="proyecto_motor.json",mime="application/json",width="stretch")
         with b:
             obj=st.file_uploader("Importar proyecto anterior (.json)",type=["json"],key="imported_json")
             if obj is not None:
