@@ -8,6 +8,7 @@ import hashlib
 from io import BytesIO
 import json
 from datetime import date
+from dataclasses import replace
 from pathlib import Path
 from html import escape
 from typing import Any
@@ -312,7 +313,8 @@ def input_field(label: str, key: str, helptext: str | None=None, disabled: bool=
 
 
 def readonly(label: str, value: float | None, unit: str=""):
-    st.text_input(label,value=(display(value,6)+(f" {unit}" if unit and value is not None else "")),disabled=True)
+    printable=display(value,6) if value is not None else "No definido"
+    st.text_input(label,value=(printable+(f" {unit}" if unit and value is not None else "")),disabled=True)
 
 
 def section(text: str):
@@ -323,6 +325,103 @@ def render_diagnosis(result: MotorResult):
     st.markdown(
         f'<div class="abb-diagnosis {result.status_kind}"><strong>{escape(result.status)}</strong>'
         f'<small>{escape(result.diagnosis)}</small></div>',unsafe_allow_html=True)
+
+
+def render_overview(result: MotorResult):
+    """Resumen técnico compacto, completo incluso en casos de no arranque."""
+    v=result.values
+    st.markdown(
+        '<div class="abb-overview"><div class="over-title">Evaluación técnica · resultado en tiempo real</div>'
+        '<div class="over-number">'+escape(result.status)+'</div>'
+        '<div class="over-sub">Los resultados algebraicos se conservan incluso cuando el arranque es inviable.</div></div>',
+        unsafe_allow_html=True,
+    )
+    columns=st.columns(4)
+    with columns[0]:
+        st.metric("Par motor disponible", display(v.get("MMM"),4)+" kgm" if v.get("MMM") is not None else "—")
+    with columns[1]:
+        st.metric("Par requerido de carga", display(v.get("MMV_nMot"),4)+" kgm" if v.get("MMV_nMot") is not None else "—")
+    with columns[2]:
+        margin=v.get("torque_margin")
+        st.metric("Margen de par", display(margin,4)+" kgm" if margin is not None else "—")
+    with columns[3]:
+        algebra=v.get("ta_algebraic")
+        label="ta algebraico (NO físico)" if v.get("start_feasible") is False else "Tiempo de arranque (ta)"
+        st.metric(label,display(algebra,3)+" s" if algebra is not None else "Indefinido / pendiente")
+    coverage=v.get("torque_coverage_pct")
+    if coverage is not None:
+        percent=max(0.0,min(100.0,coverage))
+        st.markdown(
+            '<div class="abb-info-row"><div class="abb-guide"><strong>Cobertura del par requerido: '
+            +escape(display(coverage,2))+' %</strong></div>'
+            +f'<div class="abb-progress"><div style="width:{percent:.3f}%"></div></div></div>',
+            unsafe_allow_html=True,
+        )
+    render_diagnosis(result)
+    if v.get("start_feasible") is False:
+        hp=v.get("hp_equilibrium")
+        if hp is not None:
+            st.markdown(
+                '<div class="abb-guide"><strong>Referencia de potencia:</strong> '
+                +escape(display(hp,3))+' HP equivalen aproximadamente al equilibrio de pares '
+                'con los mismos factores y velocidades. Para acelerar se necesita un margen positivo. '
+                '<strong>No es una selección de motor ni incluye reserva de ingeniería.</strong></div>',
+                unsafe_allow_html=True,
+            )
+        if v.get("ta_algebraic") is not None:
+            st.caption("El signo negativo de ta es el resultado de sustituir los datos en la ecuación; "
+                       "NO significa que el motor arranque en tiempo negativo.")
+        else:
+            st.caption("El equilibrio exacto de pares implica denominador cero; no existe un tiempo algebraico finito.")
+    elif v.get("start_feasible") is True and result.status_kind=="bad":
+        st.caption("El motor puede tener par neto positivo, pero incumplir los tiempos de bloqueo térmico HOT/COLD.")
+
+
+def render_sensitivity(result: MotorResult):
+    """Compara potencia de motor sin cambiar los valores cargados por MLFB."""
+    i,v=result.inputs,result.values
+    req=v.get("hp_equilibrium")
+    if req is None or i.hp is None or req<=0:
+        return
+    with st.expander("Análisis de alternativas · ¿qué potencia necesitaría?",expanded=(v.get("start_feasible") is False)):
+        st.markdown(
+            '<div class="abb-guide">Evaluación de sensibilidad manteniendo <strong>las mismas RPM, '
+            'factor de curvas, voltaje y carga</strong>. Es una comparación algebraica; '
+            'no garantiza el comportamiento de un motor diferente.</div>',
+            unsafe_allow_html=True,
+        )
+        reference_hp=min(200000.0,max(.1,round(req*1.2,3)))
+        proposed=st.number_input("Potencia del escenario (HP)",min_value=.1,max_value=200000.0,
+                                 value=reference_hp,step=1.0,format="%.3f",
+                                 help="Simula un HP alternativo sin modificar el motor original.")
+        alt=calculate_motor(replace(i,hp=proposed))
+        c1,c2,c3=st.columns(3)
+        with c1:st.metric("HP de equilibrio (teórico)",f"{req:,.2f} HP")
+        with c2:st.metric("MMM con HP simulado",display(alt.values.get("MMM"),4)+" kgm")
+        with c3:st.metric("ta con HP simulado",
+                          (display(alt.values.get("ta_algebraic"),3)+" s")
+                          if alt.values.get("ta_algebraic") is not None else "Indefinido")
+        if alt.values.get("start_feasible") is False:
+            st.error("El escenario todavía no tiene par suficiente. ta es algebraico y NO físico.")
+        else:
+            st.success("El escenario supera el par de la carga según el modelo. "
+                       "Revise adicionalmente los límites HOT/COLD y la curva real del motor.")
+        comparisons=[]
+        for label,hp in [("Original",i.hp),("Equilibrio teórico",req),
+                         ("Reserva ilustrativa +20 %",req*1.2)]:
+            candidate=calculate_motor(replace(i,hp=hp))
+            cv=candidate.values
+            comparisons.append({
+                "Escenario":label,
+                "HP":round(hp,3),
+                "Par motor (kgm)":round(cv["MMM"],4) if cv["MMM"] is not None else None,
+                "Margen (kgm)":round(cv["torque_margin"],4) if cv["torque_margin"] is not None else None,
+                "ta algebraico (s)":cv["ta_algebraic"],
+                "¿Par suficiente?":"Sí" if cv["start_feasible"] is True else "No",
+            })
+        st.dataframe(pd.DataFrame(comparisons),hide_index=True,width="stretch")
+        st.caption("El 20 % es solo una hipótesis ilustrativa. No constituye un factor "
+                   "de servicio normativo ni reemplaza la evaluación completa del accionamiento.")
 
 
 def on_voltage_slider():
